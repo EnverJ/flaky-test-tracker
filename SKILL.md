@@ -56,9 +56,9 @@ Use the cheapest source that exists, in this order:
 2. **Repeated local runs.** Propose the command and get approval first:
    - Playwright: `npx playwright test <scope> --repeat-each=10 --retries=0 --reporter=json`
      with `PLAYWRIGHT_JSON_OUTPUT_NAME=.flaky/runs/pw.json`
-   - Maven: `scripts/collect_runs.sh -n 10 -c "mvn -q test -Dtest=<Class>" -r target/surefire-reports`
-   - Gradle: `scripts/collect_runs.sh -n 10 -c "./gradlew test --rerun-tasks --tests <Class>" -r build/test-results/test`
-   - pytest: `scripts/collect_runs.sh -n 10 -c "pytest <path> --junitxml=report.xml" -r report.xml`
+   - Maven: `java scripts/CollectRuns.java -n 10 -c "mvn -q test -Dtest=<Class>" -r target/surefire-reports`
+   - Gradle: `java scripts/CollectRuns.java -n 10 -c "./gradlew test --rerun-tasks --tests <Class>" -r build/test-results/test`
+   - pytest: `java scripts/CollectRuns.java -n 10 -c "pytest <path> --junitxml=report.xml" -r report.xml`
    Run with the project's normal parallelism; many flakes only appear under parallel load.
    If a candidate passes 10/10, try once more with higher parallelism or CPU throttling
    before calling it stable.
@@ -66,14 +66,14 @@ Use the cheapest source that exists, in this order:
    **"suspected — not confirmed"**.
 
 ### Phase 2 — Score
-Run `python scripts/flaky_score.py <reports...> --out .flaky/score.json --md .flaky/score.md`
+Run `java scripts/FlakyScore.java <reports...> --out .flaky/score.json --md .flaky/score.md`
 (add `--history .flaky/history.jsonl` to track trends across sessions).
 It classifies each test as FLAKY / BROKEN / STABLE / INSUFFICIENT_DATA and groups
 failure messages into normalized error signatures. Rank work by flaky score × how
 often the test runs in CI.
 
 ### Phase 3 — Static scan
-Run `python scripts/static_scan.py <repo> --out .flaky/static.json --md .flaky/static.md`.
+Run `java scripts/StaticScan.java <repo> --out .flaky/static.json --md .flaky/static.md`.
 Correlate: a finding in the test file, its page objects, or its fixtures **and** a
 matching error signature is strong evidence. Findings in files with no flaky tests
 are low priority — mention them as "preventive" only.
@@ -117,7 +117,7 @@ Apply changes only after the user approves (or when they've said to apply direct
 ### Phase 6 — Verify
 Rerun each fixed test with the stress command: Playwright
 `--repeat-each=20 --retries=0 --workers=<normal or higher>`; Selenium/pytest
-`collect_runs.sh -n 20`. Then re-score. Mark the fix:
+`java scripts/CollectRuns.java -n 20 ...`. Then re-score. Mark the fix:
 - **Verified** — 20/20 passes, same parallelism as CI.
 - **Improved** — failure rate dropped but not zero; continue diagnosing.
 - **Not fixed** — revert or rethink.
@@ -131,7 +131,7 @@ Write `.flaky/flaky-report.md` with:
 4. Systemic issues (e.g., "no explicit-wait helper; 38 hard sleeps across 12 page objects").
 5. Prevention recommendations: CI flaky gate, lint rules, retry policy reporting.
 
-Keep the report factual; numbers come from the scripts, not estimates.
+Keep the report factual; numbers come from the tools, not estimates.
 
 ## Modes the user can ask for
 - **Scan only** — Phases 0, 2, 3, 7 from existing reports; no runs, no edits.
@@ -140,8 +140,11 @@ Keep the report factual; numbers come from the scripts, not estimates.
 - **CI mode** — no questions; analyze artifacts, write the report, never edit code.
 
 ## Bundled files
-- `scripts/flaky_score.py` — scores JUnit XML (Surefire, TestNG junitreports, Gradle,
+- `scripts/FlakyScore.java` — scores JUnit XML (Surefire, TestNG junitreports, Gradle,
   pytest, Playwright junit) and Playwright JSON reports across runs.
-- `scripts/static_scan.py` — finds flakiness anti-patterns in Java, TS/JS, Python, C#.
-- `scripts/collect_runs.sh` — runs any test command N times and archives each run's reports.
+- `scripts/StaticScan.java` — finds flakiness anti-patterns in Java, TS/JS, Python, C#.
+- `scripts/CollectRuns.java` — runs any test command N times and archives each run's reports.
+
+All tools are single-file Java 11+ programs with no dependencies; run them directly with
+`java scripts/<Tool>.java` (no compile step). Use `--help` on any tool for options.
 - `references/fix-patterns.md` — root cause → fix catalog for Selenium and Playwright.

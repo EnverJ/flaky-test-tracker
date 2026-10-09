@@ -231,7 +231,7 @@ only in another timezone or locale.
 navigate during save), or responses arrive out of order.
 
 **Action:** don't make the test tolerate it. Write it up: steps, trace/video, frequency
-from `flaky_score.py`, suspected component. Quarantine the test only with a linked ticket.
+from `FlakyScore`, suspected component. Quarantine the test only with a linked ticket.
 
 ---
 
@@ -255,5 +255,5 @@ Run the quarantine group in a separate non-blocking CI job so the data keeps flo
 - Lint: eslint-plugin-playwright (`no-wait-for-timeout`, `no-force-option`,
   `prefer-web-first-assertions`, `missing-playwright-await`); a Checkstyle/PMD rule or
   grep gate banning `Thread.sleep` under `src/test`.
-- Weekly scheduled run of `flaky_score.py --history` to spot new flakes and trends.
-- New tests: run `--repeat-each=10` (or `collect_runs.sh -n 10`) before merge.
+- Weekly scheduled run of `java scripts/FlakyScore.java --history` to spot new flakes and trends.
+- New tests: run `--repeat-each=10` (or `java scripts/CollectRuns.java -n 10`) before merge.

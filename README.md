@@ -14,12 +14,12 @@ AI reasoning (diagnosis and fixes), so every conclusion is backed by numbers.
   repo ───► │ 0. Discover       │  framework, runner, report paths, retries, parallelism
             └─────────┬─────────┘
                       ▼
-            ┌───────────────────┐   CI artifacts, or collect_runs.sh / --repeat-each
+            ┌───────────────────┐   CI artifacts, or CollectRuns / --repeat-each
             │ 1. Collect runs   │──────────────────────────────────────────────┐
             └─────────┬─────────┘                                              │
                       ▼                                                        ▼
             ┌───────────────────┐                                   ┌───────────────────┐
-            │ 2. flaky_score.py │  PROOF: FLAKY / BROKEN / STABLE   │ 3. static_scan.py │  SUSPECTS:
+            │ 2. FlakyScore     │  PROOF: FLAKY / BROKEN / STABLE   │ 3. StaticScan     │  SUSPECTS:
             └─────────┬─────────┘  + error signatures               └─────────┬─────────┘  anti-patterns
                       └──────────────────────┬──────────────────────────────────┘
                                              ▼
@@ -48,12 +48,14 @@ language per file.
 | File | Purpose |
 |---|---|
 | `SKILL.md` | The agent's instructions: rules, 7-phase workflow, modes |
-| `scripts/flaky_score.py` | Scores tests across runs; reads retries (`<flakyFailure>`, Playwright `flaky`); groups failure signatures; optional trend history |
-| `scripts/static_scan.py` | ~30 anti-pattern rules for Java, C#, TS/JS, Python (sleeps, non-retrying assertions, missing `await`, static drivers, order dependency, brittle locators, `force: true`, retries masking flakes…) |
-| `scripts/collect_runs.sh` | Runs any test command N times and archives each run's reports |
+| `scripts/FlakyScore.java` | Scores tests across runs; reads retries (`<flakyFailure>`, Playwright `flaky`); groups failure signatures; optional trend history |
+| `scripts/StaticScan.java` | ~30 anti-pattern rules for Java, C#, TS/JS, Python (sleeps, non-retrying assertions, missing `await`, static drivers, order dependency, brittle locators, `force: true`, retries masking flakes…) |
+| `scripts/CollectRuns.java` | Runs any test command N times and archives each run's reports (Windows, macOS, Linux) |
 | `references/fix-patterns.md` | 11 root-cause categories → evidence → fix, with Selenium and Playwright code, plus quarantine and prevention guidance |
 
-Python 3.8+ standard library only — no installs.
+**Java 11+ only — no dependencies, no build step.** Each tool is a single-file Java program you run
+directly with `java scripts/<Tool>.java ...` (Java's single-file source launcher). Add `--help` for options.
+If you prefer compiled classes: `javac -d out scripts/*.java` then `java -cp out FlakyScore ...`.
 
 ## Using it
 
@@ -72,19 +74,19 @@ custom instructions at `SKILL.md` (it's plain Markdown; the scripts are ordinary
 ```bash
 # Playwright: 10 repeats, no retries
 PLAYWRIGHT_JSON_OUTPUT_NAME=.flaky/pw.json npx playwright test --repeat-each=10 --retries=0 --reporter=json
-python scripts/flaky_score.py .flaky/pw.json --md .flaky/score.md
+java scripts/FlakyScore.java .flaky/pw.json --md .flaky/score.md
 
 # Maven + TestNG/JUnit: 10 separate runs
-scripts/collect_runs.sh -n 10 -c "mvn -q test" -r target/surefire-reports
-python scripts/flaky_score.py ".flaky/runs/run_*" --md .flaky/score.md --history .flaky/history.jsonl
+java scripts/CollectRuns.java -n 10 -c "mvn -q test" -r target/surefire-reports
+java scripts/FlakyScore.java .flaky/runs --md .flaky/score.md --history .flaky/history.jsonl
 
 # Anti-pattern scan
-python scripts/static_scan.py . --md .flaky/static.md --min-severity medium
+java scripts/StaticScan.java . --md .flaky/static.md --min-severity medium
 ```
 
 ## Ideas to extend it (roughly in value order)
 
-1. **CI gate** — a GitHub Actions/Jenkins step that runs `flaky_score.py` on archived
+1. **CI gate** — a GitHub Actions/Jenkins step that runs `FlakyScore` on archived
    reports from the last N runs of `main` and posts the report on a schedule.
 2. **Lint rules** — turn the high-severity scanner rules into eslint-plugin-playwright /
    Checkstyle rules so new flakes can't merge.
