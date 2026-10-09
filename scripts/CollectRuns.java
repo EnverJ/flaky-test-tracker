@@ -24,6 +24,9 @@ import java.util.stream.Stream;
  *   -e KEY=VALUE      extra environment variable (repeatable)
  *   -s <count>        stop after this many failing runs (default 0 = never)
  *
+ * Safety: the report path is deleted before each run, so -r and -o must be real
+ * (non-symlink) paths strictly inside the repository; anything else is refused.
+ *
  * Each run's report is copied to <out>/run_001, run_002, ... with the console log and a
  * run-meta.txt. A failing test command does NOT stop the loop (that's the point). Then:
  *   java scripts/FlakyScore.java .flaky/runs
@@ -55,9 +58,16 @@ public class CollectRuns {
         }
         if (cmd == null || report == null) { System.err.println("need -c <command> and -r <report path>"); usage(); System.exit(2); }
 
-        Path outDir = Paths.get(out);
+        // Safety: the report path is deleted before every run, so both paths must be real
+        // (non-symlink) locations strictly inside the repository.
+        Path repoRoot = repoRoot();
+        Path reportPath = validateUnderRepo(Paths.get(report), "report path (-r)", repoRoot);
+        Path outDir = validateUnderRepo(Paths.get(out), "output dir (-o)", repoRoot);
+        if (reportPath.equals(outDir) || outDir.startsWith(reportPath)) {
+            System.err.println("error: output dir must not be inside the report path (it is deleted each run)");
+            System.exit(2);
+        }
         Files.createDirectories(outDir);
-        Path reportPath = Paths.get(report);
         int startIdx;
         try (Stream<Path> s = Files.list(outDir)) {
             startIdx = (int) s.filter(Files::isDirectory).filter(p -> p.getFileName().toString().startsWith("run_")).count();
@@ -70,7 +80,8 @@ public class CollectRuns {
             String idx = String.format("%03d", startIdx + i);
             Path dest = outDir.resolve("run_" + idx);
             Path log = outDir.resolve("run_" + idx + ".log");
-            deleteRecursively(reportPath);                     // never score a stale report
+            if (Files.isSymbolicLink(reportPath)) fail("report path became a symlink; refusing to delete it: " + reportPath);
+            deleteRecursively(reportPath);                     // never score a stale report (does not follow symlinks)
             System.out.println("== run " + i + "/" + n + " -> " + dest);
 
             ProcessBuilder pb = windows ? new ProcessBuilder("cmd", "/c", cmd) : new ProcessBuilder("sh", "-c", cmd);
@@ -96,6 +107,37 @@ public class CollectRuns {
 
     static void usage() {
         System.out.println("Usage: java CollectRuns.java -n 10 -c \"<test command>\" -r <report path> [-o .flaky/runs] [-e KEY=VALUE]... [-s 0]");
+    }
+
+    /** Repository root (git top level), or the current directory outside a git repo. Real path, symlinks resolved. */
+    static Path repoRoot() throws IOException {
+        try {
+            Process p = new ProcessBuilder("git", "rev-parse", "--show-toplevel").redirectErrorStream(true).start();
+            String s = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).strip();
+            if (p.waitFor() == 0 && !s.isEmpty()) return Paths.get(s).toRealPath();
+        } catch (Exception ignored) { }
+        return Paths.get("").toAbsolutePath().toRealPath();
+    }
+
+    /**
+     * Rejects a path that is a symlink, contains a symlinked parent that leads outside the repo,
+     * escapes the repo (absolute or via ".."), or IS the repo root. Returns the absolute, normalized path.
+     */
+    static Path validateUnderRepo(Path path, String label, Path repoRoot) throws IOException {
+        Path abs = path.toAbsolutePath().normalize();
+        if (Files.isSymbolicLink(abs)) fail(label + " must not be a symlink: " + path);
+        // Resolve symlinks in the deepest existing ancestor so a symlinked parent can't escape the repo.
+        Path existing = abs;
+        while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) existing = existing.getParent();
+        Path real = existing == null ? abs : existing.toRealPath().resolve(existing.relativize(abs)).normalize();
+        if (!real.startsWith(repoRoot)) fail(label + " must stay inside the repository (" + repoRoot + "): " + path);
+        if (real.equals(repoRoot)) fail(label + " must not be the repository root: " + path);
+        return real;
+    }
+
+    static void fail(String msg) {
+        System.err.println("error: " + msg);
+        System.exit(2);
     }
 
     static String gitCommit() {
